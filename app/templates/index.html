@@ -1,0 +1,364 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>eScriptorium Segmonto Live Checker</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH" crossorigin="anonymous">
+  <style type="text/css">
+   .dot1 {
+         animation: visibility 3s linear infinite;
+    }
+     @keyframes visibility {
+         0% {
+             opacity: 1;
+        }
+         65% {
+             opacity: 1;
+        }
+         66% {
+             opacity: 0;
+        }
+         100% {
+             opacity: 0;
+        }
+    }
+     .dot2 {
+         animation: visibility2 3s linear infinite;
+    }
+     @keyframes visibility2 {
+         0% {
+             opacity: 0;
+        }
+         21% {
+             opacity: 0;
+        }
+         22% {
+             opacity: 1;
+        }
+         65% {
+             opacity: 1;
+        }
+         66% {
+             opacity: 0;
+        }
+         100% {
+             opacity: 0;
+        }
+    }
+     .dot3 {
+         animation: visibility3 3s linear infinite;
+    }
+     @keyframes visibility3 {
+         0% {
+             opacity: 0;
+        }
+         43% {
+             opacity: 0;
+        }
+         44% {
+             opacity: 1;
+        }
+         65% {
+             opacity: 1;
+        }
+         66% {
+             opacity: 0;
+        }
+         100% {
+             opacity: 0;
+        }
+    }
+
+  </style>
+</head>
+<body style="background-color: #EEEEEE; padding:3em;">
+  <div class="container-fluid">
+    <div class="row">
+      <div class="border rounded p-2" style="background-color: white;">
+        <div class="text-center">
+          <h1>eScriptorium Segmonto Live Checker</h1>
+          <p class="lead">A live-checker for checking the compliancy of your data on eScriptorium with SegmOnto vocabularies.</p>
+        </div>
+        <hr />
+        <form class="form" id="form">
+          <h2>Fill in your information</h2>
+          <div class="form-group row">
+            <label for="auth-token" class="col-sm-2 col-form-label">API Token</label>
+            <div class="col-sm-10">
+              <input type="text" name="auth" class="form-control" id="auth-token" aria-describedby="authorizationHelp" placeholder="e.g.  bf74732c30f492296bf99b4a06ad543e" value="">
+              <small id="authorizationHelp" class="form-text text-muted">This information is available under your Profile (<em>Hello Username</em>) > <em>API key</em>. This information is not stored anywhere on our end.</small>
+            </div>
+          </div>
+          <div class="form-group row">
+            <label for="url" class="col-sm-2 col-form-label">URL on eScriptorium</label>
+            <div class="col-sm-10">
+              <input type="url" name="url" class="form-control" id="url" aria-describedby="urlHelp" placeholder="e.g. https://escriptorium.inria.fr/document/123/part/1234/edit/">
+              <small id="urlHelp" class="form-text text-muted">URL of a page in your document (single page checking) or URL of a document (check all pages).</small>
+            </div>
+          </div>
+          <div class="form-group text-center mt-2">
+            <input type="submit" class="btn btn-primary" value="Check my data !" />
+          </div>
+        </form>
+        <div id="results" style="font-family: Consolas,Monaco,Lucida Console,Liberation Mono,DejaVu Sans Mono,Bitstream Vera Sans Mono,Courier New; font-size: .8em;">
+        </div>
+      </div>
+    </div>
+
+
+  </div>
+  <script type="text/javascript">
+
+const regex = /(?<domain>.*)\/document(?:s?)\/(?<document>\d+)(?:\/part\/(?<page>\d+))?/,
+      re_zones = /^(CustomZone|DamageZone|GraphicZone|DigitizationArtefactZone|DropCapitalZone|MainZone|MarginTextZone|MusicZone|NumberingZone|QuireMarksZone|RunningTitleZone|SealZone|StampZone|TableZone|TitlePageZone)(\:.*)?(\#.*)?$/,
+      re_lines = /^(CustomLine|DefaultLine|DropCapitalLine|HeadingLine|InterlinearLine|MusicLine)(\:.*)?(\#.*)?$/;
+
+document.addEventListener('DOMContentLoaded', function() {
+
+  const form = document.getElementById("form"),
+        results = document.getElementById("results");
+
+
+  function humanUri(originalUri) {
+    const m = regex.exec(originalUri);
+
+    if(m.groups.page !== undefined) {
+      return `${m.groups.domain.replace('\/api', '')}/document/${m.groups.document}/part/${m.groups.page}/edit/`;
+    } else {
+      return `${m.groups.domain.replace('\/api', '')}/document/${m.groups.document}`;
+    }
+  }
+
+
+  function addLoadingText(targetElement, text) {
+    /** Add a loading text within targetElement. Returns the element
+     * 
+     */
+    if (!targetElement) {
+      console.error(`Element with id ${elementId} not found.`);
+      return;
+    }
+
+    const paragraph = document.createElement('p');
+    paragraph.innerHTML = `${text}<span class="dot1">.</span><span class="dot2">.</span><span class="dot3">.</span>`;
+
+    targetElement.appendChild(paragraph);
+    return paragraph;
+  }
+
+  function authFetch(uri, token) {
+    // Options de la requête
+    const options = {
+      method: 'GET',
+      headers: {"Authorization": "Token "+token},
+    };
+    return fetch("{{ url_for('proxy') }}?uri=" + uri, options);
+  }
+
+  function transformArrayToObject(arr) {
+    return arr.reduce((acc, obj) => {
+      acc[obj.pk] = obj.name;
+      return acc;
+    }, {});
+  }
+
+  function createLine(ul, type, details) {
+    const el = document.createElement("li");
+    el.innerHTML = `- ${type} ${details}`;
+    ul.appendChild(el);
+  }
+
+  function checkValidity(typology, type) {
+    if (typology === undefined) {
+      return false;
+    } else if (type === "line" && re_lines.test(typology)) {
+      return true;
+    } else if (type === "zone" && re_zones.test(typology)) {
+      return true;
+    }
+    return false;
+  }
+
+  function processPart(page, token, typesDictionary) {
+    const hURI = humanUri(page);
+    const loadingText = addLoadingText(results, `Retrieving information from <a href="${hURI}">${hURI}</a>`);
+    return authFetch(page, token).then(response => {
+        if (!response.ok) {
+          results.innerHTML = `<hr/><div class="alert alert-danger">HTTP error! Status: ${response.status}</div>`;
+          throw new Error(`HTTP error! Status: ${response.status}`);
+        }
+        return response.json();
+      })
+      .then(data => {
+        loadingText.remove();
+        const element = document.createElement(`p`);
+        element.innerHTML = `Results for <a href="${hURI}">${hURI}</a>`;
+
+        const ulZone = document.createElement("ul");
+        ulZone.classList.add("list-unstyled")
+        ulZone.style = "padding-left: 2em!important;";
+        element.appendChild(ulZone);
+        results.appendChild(element);
+
+        let zoneStats = 0;
+
+        for (var i = 0; i < data.regions.length; i++) {
+          let reg = data.regions[i];
+          if(data.regions[i].typology === null) {
+            createLine(ulZone, "Region", "has no types");
+          } else if (checkValidity(typesDictionary.regions[reg.typology], "zone") !== true) {
+            createLine(ulZone, `Region (ID ${reg.external_id})`, `has the invalid type ${typesDictionary.regions[reg.typology]}`);
+          } else {
+            zoneStats += 1;
+          }
+        }
+
+        const zonePerc = ((data.regions.length > 0) ? (zoneStats / data.regions.length * 100) : 100.00).toFixed(2);
+
+        const badge = document.createElement("p");
+        badge.style = "padding-left: 2em;";
+        if (zonePerc == 100.00) {
+          badge.innerHTML = `<span class="badge text-bg-success">${zoneStats}/${data.regions.length} regions are OK !</span>`;
+        } else if (zonePerc >= 50.00) {
+          badge.innerHTML = `<span class="badge text-bg-warning">${zoneStats}/${data.regions.length} regions are OK.</span>`;
+        } else {
+          badge.innerHTML = `<span class="badge text-bg-danger">${zoneStats}/${data.regions.length} regions are OK...</span>`;
+        }
+        results.appendChild(badge);
+
+
+        const ulLine = document.createElement("ul");
+        ulLine.classList.add("list-unstyled")
+        ulLine.style = "padding-left: 2em!important;";
+        element.appendChild(ulLine);
+        results.appendChild(element);
+
+        let lineStats = 0;
+
+        for (var i = 0; i < data.lines.length; i++) {
+          console.log(data.lines[i]);
+          let line = data.lines[i],
+              errors = 0;
+          if(line.typology === null) {
+            createLine(ulLine, `Line (ID ${line.external_id}, Order ${line.order})`, "has no types");
+            errors += 1
+          } else if (checkValidity(typesDictionary.lines[line.typology], "line") !== true) {
+            createLine(ulLine, `Line (ID ${line.external_id}, Order ${line.order})`, `has the invalid type ${typesDictionary.lines[line.typology]}.`);
+            errors += 1
+          } 
+          if (line.region === undefined || line.region === null) {
+            createLine(ulLine, `Line (ID ${line.external_id}, Order ${line.order})`, `does not belong to a region.`);
+            errors += 1
+          }
+
+          if (errors == 0) {
+            lineStats += 1;
+          }
+        }
+
+        const linePerc = ((data.lines.length > 0) ? (lineStats / data.lines.length * 100) : 100.00).toFixed(2);
+
+        const badgeLine = document.createElement("p");
+        badgeLine.style = "padding-left: 2em;";
+        if (linePerc == 100.00) {
+          badgeLine.innerHTML = `<span class="badge text-bg-success">${lineStats}/${data.lines.length} lines are OK !</span>`;
+        } else if (linePerc >= 50.00) {
+          badgeLine.innerHTML = `<span class="badge text-bg-warning">${lineStats}/${data.lines.length} lines are OK.</span>`;
+        } else {
+          badgeLine.innerHTML = `<span class="badge text-bg-danger">${lineStats}/${data.lines.length} lines are OK...</span>`;
+        }
+        results.appendChild(badgeLine);
+      })
+      .catch(error => {
+        results.innerHTML = `<hr/><div class="alert alert-danger">Unable to reach the server.</div>`;
+        console.error('Error fetching data:', error);
+        // You can handle errors here or propagate them to the caller as needed
+      });
+
+    // new Promise((resolve, reject) => {
+    //   // Simuler une requête AJAX pour obtenir la page JSON
+    //   setTimeout(() => {
+    //     console.log(`Traitement de la page : ${page.url}`);
+    //     // Supposons que la page soit un objet JSON
+    //     const pageData = { data: 'contenu de la page JSON' };
+    //     // Appeler la fonction de traitement sur les données de la page
+    //     traiterDonnees(pageData);
+    //     resolve(); // Indiquer que le traitement est terminé
+    //   }, 1000); // Temps simulé pour la requête (1 seconde)
+    // });
+  }
+
+  async function processQueue(uris, token, typesDictionary) {
+    for (const uri of uris) {
+      await processPart(uri, token, typesDictionary);
+    }
+    console.log('Toutes les pages ont été traitées.');
+  }
+
+
+  /**
+   * Parses a document specified by its URI and extracts information based on the provided pages parameter.
+   * @param {string} domain - The domain of the eScriptorium server
+   * @param {string} docId - The ID of the document to parse.
+   * @param {string} pages - A string indicating which pages to extract. Can be a page number ('1', '2', etc.) or 'all' to extract all pages.
+   * @param {Function} callback - A callback function that takes a typesDictionary object and a uriList object as arguments.
+   */
+  function parseDocument(domain, docId, pageMode, token, callback) {
+    const loadingText = addLoadingText(results, "Retrieving the list of region and line types");
+    loadingText.remove();
+    authFetch(`${domain}/api/documents/${docId}/`, token)
+      .then(response => {
+        if (!response.ok) {
+          results.innerHTML = `<hr/><div class="alert alert-danger">HTTP error! Status: ${response.status}</div>`;
+          throw new Error(`HTTP error! Status: ${response.status}`);
+        }
+        return response.json();
+      })
+      .then(data => {
+        // Assuming your JSON structure has 'pages' and 'objects' properties
+        const typesDictionary = {
+          "regions": transformArrayToObject(data.valid_block_types),
+          "lines": transformArrayToObject(data.valid_line_types)
+        }
+        if (pageMode == "all") {
+          retrievePartIds(domain, docId, token, (uris, token) => { callback(uris, token, typesDictionary) });
+        } else {
+          callback([`${domain}/api/documents/${docId}/parts/${pageMode}`], token, typesDictionary)
+        }
+        // const objects = data.objects;
+      })
+      .catch(error => {
+        results.innerHTML = `<hr/><div class="alert alert-danger">Unable to reach the server.</div>`;
+        console.error('Error fetching data:', error);
+        // You can handle errors here or propagate them to the caller as needed
+      });
+    }
+
+    form.addEventListener("submit", function(event) {
+      event.preventDefault(); // Prevent the default form submission
+      // Serialize the form data
+      const formData = new FormData(form);
+      const auth = formData.get("auth"),
+            url  = formData.get("url");
+
+
+      if((m = regex.exec(url)) !== null) {
+        let pageMode = "all";
+        if (m.groups.page !== undefined) {
+          pageMode = m.groups.page;
+        }
+        results.innerHTML = "";
+        results.appendChild(document.createElement("hr"));
+
+        // Run baby run !
+        parseDocument(m.groups.domain, m.groups.document, pageMode, auth, processQueue);
+      } else {
+        results.innerHTML = `<div class="alert alert-danger">The provided URI does not correspond to a valid Document or Page URI.</div>`;
+        return;
+      }
+    });
+  });
+  </script>
+</body>
+</html>

@@ -1,0 +1,7 @@
+name: segmontoEnv  # Change 'myenv' to your desired environment name
+channels:
+  - conda-forge
+dependencies:
+  - python=3.10
+  - flask
+  - requests
