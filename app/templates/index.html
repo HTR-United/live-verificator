@@ -110,7 +110,7 @@
   </div>
   <script type="text/javascript">
 
-const regex = /(?<domain>.*)\/document(?:s?)\/(?<document>\d+)(?:\/part\/(?<page>\d+))?/,
+const regex = /(?<domain>.*)\/document(?:s?)\/(?<document>\d+)(?:\/parts?\/(?<page>\d+))?/,
       re_zones = /^(CustomZone|DamageZone|GraphicZone|DigitizationArtefactZone|DropCapitalZone|MainZone|MarginTextZone|MusicZone|NumberingZone|QuireMarksZone|RunningTitleZone|SealZone|StampZone|TableZone|TitlePageZone)(\:.*)?(\#.*)?$/,
       re_lines = /^(CustomLine|DefaultLine|DropCapitalLine|HeadingLine|InterlinearLine|MusicLine)(\:.*)?(\#.*)?$/;
 
@@ -147,15 +147,6 @@ document.addEventListener('DOMContentLoaded', function() {
     return paragraph;
   }
 
-  function authFetch(uri, token) {
-    // Options de la requête
-    const options = {
-      method: 'GET',
-      headers: {"Authorization": "Token "+token},
-    };
-    return fetch("{{ url_for('proxy') }}?uri=" + uri, options);
-  }
-
   function transformArrayToObject(arr) {
     return arr.reduce((acc, obj) => {
       acc[obj.pk] = obj.name;
@@ -180,113 +171,132 @@ document.addEventListener('DOMContentLoaded', function() {
     return false;
   }
 
-  function processPart(page, token, typesDictionary) {
+  function createUl(parent, title) {
+    const ul = document.createElement("ul"),
+          titleLi = document.createElement("li"),
+          li = document.createElement("li"),
+          ul2 = document.createElement("ul");
+    ul.classList.add("list-unstyled")
+    ul.style = "padding-left: 2em!important;";
+    ul2.style = "padding-left: 3em!important;";
+    ul.appendChild(titleLi);
+    titleLi.innerText = title;
+    ul.appendChild(li);
+    li.appendChild(ul2);
+    parent.appendChild(ul);
+    return ul;
+  }
+
+  function createBadge(ul, sum, total, type) {
+    const badge = document.createElement("li"),
+          perc = ((total > 0) ? sum / total * 100: 100.00).toFixed(2);
+    if (perc == 100.00) {
+      badge.innerHTML = `<span class="badge text-bg-success">${sum}/${total} ${type} are OK !</span>`;
+    } else if (perc >= 50.00) {
+      badge.innerHTML = `<span class="badge text-bg-warning">${sum}/${total} ${type} are OK.</span>`;
+    } else {
+      badge.innerHTML = `<span class="badge text-bg-danger">${sum}/${total} ${type} are OK...</span>`;
+    }
+    ul.appendChild(badge);
+  }
+
+  /**
+   * 
+   */
+  async function authFetch(uri, token) {
+    // Options de la requête
+    const options = {
+      method: 'GET',
+      headers: {"Authorization": "Token "+token},
+    };
+    const uri_fetch = await fetch("{{ url_for('proxy') }}?uri=" + uri, options);
+    return uri_fetch;
+  }
+
+  async function processPart(page, token, typesDictionary) {
     const hURI = humanUri(page);
     const loadingText = addLoadingText(results, `Retrieving information from <a href="${hURI}">${hURI}</a>`);
-    return authFetch(page, token).then(response => {
-        if (!response.ok) {
-          results.innerHTML = `<hr/><div class="alert alert-danger">HTTP error! Status: ${response.status}</div>`;
-          throw new Error(`HTTP error! Status: ${response.status}`);
-        }
-        return response.json();
-      })
-      .then(data => {
-        loadingText.remove();
-        const element = document.createElement(`p`);
-        element.innerHTML = `Results for <a href="${hURI}">${hURI}</a>`;
 
-        const ulZone = document.createElement("ul");
-        ulZone.classList.add("list-unstyled")
-        ulZone.style = "padding-left: 2em!important;";
-        element.appendChild(ulZone);
-        results.appendChild(element);
+    try {
+      const response = await authFetch(page, token)
 
-        let zoneStats = 0;
+      if (!response.ok) {
+        results.innerHTML = `<hr/><div class="alert alert-danger">HTTP error! Status: ${response.status}</div>`;
+        throw new Error(`HTTP error! Status: ${response.status}`);
+      }
+      const data = await response.json();
 
-        for (var i = 0; i < data.regions.length; i++) {
-          let reg = data.regions[i];
-          if(data.regions[i].typology === null) {
-            createLine(ulZone, "Region", "has no types");
-          } else if (checkValidity(typesDictionary.regions[reg.typology], "zone") !== true) {
-            createLine(ulZone, `Region (ID ${reg.external_id})`, `has the invalid type ${typesDictionary.regions[reg.typology]}`);
-          } else {
-            zoneStats += 1;
-          }
-        }
+      // Create the details
+      loadingText.remove();
+      const element = document.createElement(`p`);
+      element.innerHTML = `Results for <a href="${hURI}">${hURI}</a>`;
+      results.appendChild(element);
 
-        const zonePerc = ((data.regions.length > 0) ? (zoneStats / data.regions.length * 100) : 100.00).toFixed(2);
-
-        const badge = document.createElement("p");
-        badge.style = "padding-left: 2em;";
-        if (zonePerc == 100.00) {
-          badge.innerHTML = `<span class="badge text-bg-success">${zoneStats}/${data.regions.length} regions are OK !</span>`;
-        } else if (zonePerc >= 50.00) {
-          badge.innerHTML = `<span class="badge text-bg-warning">${zoneStats}/${data.regions.length} regions are OK.</span>`;
+      // Create the list for zones
+      const ulZone = createUl(element, "Regions");
+      let zoneStats = 0;
+      for (var i = 0; i < data.regions.length; i++) {
+        let reg = data.regions[i];
+        if(data.regions[i].typology === null) {
+          createLine(ulZone, "Region", "has no types");
+        } else if (checkValidity(typesDictionary.regions[reg.typology], "zone") !== true) {
+          createLine(ulZone, `Region (ID ${reg.external_id})`, `has the invalid type ${typesDictionary.regions[reg.typology]}`);
         } else {
-          badge.innerHTML = `<span class="badge text-bg-danger">${zoneStats}/${data.regions.length} regions are OK...</span>`;
+          zoneStats += 1;
         }
-        results.appendChild(badge);
+      }
 
+      createBadge(ulZone, zoneStats, data.regions.length, "regions");
 
-        const ulLine = document.createElement("ul");
-        ulLine.classList.add("list-unstyled")
-        ulLine.style = "padding-left: 2em!important;";
-        element.appendChild(ulLine);
-        results.appendChild(element);
-
-        let lineStats = 0;
-
-        for (var i = 0; i < data.lines.length; i++) {
-          console.log(data.lines[i]);
-          let line = data.lines[i],
-              errors = 0;
-          if(line.typology === null) {
-            createLine(ulLine, `Line (ID ${line.external_id}, Order ${line.order})`, "has no types");
-            errors += 1
-          } else if (checkValidity(typesDictionary.lines[line.typology], "line") !== true) {
-            createLine(ulLine, `Line (ID ${line.external_id}, Order ${line.order})`, `has the invalid type ${typesDictionary.lines[line.typology]}.`);
-            errors += 1
-          } 
-          if (line.region === undefined || line.region === null) {
-            createLine(ulLine, `Line (ID ${line.external_id}, Order ${line.order})`, `does not belong to a region.`);
-            errors += 1
-          }
-
-          if (errors == 0) {
-            lineStats += 1;
-          }
+      const ulLine = createUl(element, "Lines");
+      let lineStats = 0;
+      for (var i = 0; i < data.lines.length; i++) {
+        let line = data.lines[i],
+            errors = 0;
+        if(line.typology === null) {
+          createLine(ulLine, `Line (ID ${line.external_id}, Order ${line.order+1})`, "has no types");
+          errors += 1
+        } else if (checkValidity(typesDictionary.lines[line.typology], "line") !== true) {
+          createLine(ulLine, `Line (ID ${line.external_id}, Order ${line.order+1})`, `has the invalid type ${typesDictionary.lines[line.typology]}.`);
+          errors += 1
+        } 
+        if (line.region === undefined || line.region === null) {
+          createLine(ulLine, `Line (ID ${line.external_id}, Order ${line.order+1})`, `does not belong to a region.`);
+          errors += 1
         }
 
-        const linePerc = ((data.lines.length > 0) ? (lineStats / data.lines.length * 100) : 100.00).toFixed(2);
-
-        const badgeLine = document.createElement("p");
-        badgeLine.style = "padding-left: 2em;";
-        if (linePerc == 100.00) {
-          badgeLine.innerHTML = `<span class="badge text-bg-success">${lineStats}/${data.lines.length} lines are OK !</span>`;
-        } else if (linePerc >= 50.00) {
-          badgeLine.innerHTML = `<span class="badge text-bg-warning">${lineStats}/${data.lines.length} lines are OK.</span>`;
-        } else {
-          badgeLine.innerHTML = `<span class="badge text-bg-danger">${lineStats}/${data.lines.length} lines are OK...</span>`;
+        if (errors == 0) {
+          lineStats += 1;
         }
-        results.appendChild(badgeLine);
-      })
-      .catch(error => {
-        results.innerHTML = `<hr/><div class="alert alert-danger">Unable to reach the server.</div>`;
-        console.error('Error fetching data:', error);
-        // You can handle errors here or propagate them to the caller as needed
-      });
+      }
 
-    // new Promise((resolve, reject) => {
-    //   // Simuler une requête AJAX pour obtenir la page JSON
-    //   setTimeout(() => {
-    //     console.log(`Traitement de la page : ${page.url}`);
-    //     // Supposons que la page soit un objet JSON
-    //     const pageData = { data: 'contenu de la page JSON' };
-    //     // Appeler la fonction de traitement sur les données de la page
-    //     traiterDonnees(pageData);
-    //     resolve(); // Indiquer que le traitement est terminé
-    //   }, 1000); // Temps simulé pour la requête (1 seconde)
-    // });
+      createBadge(ulLine, lineStats, data.lines.length, "lines");
+
+    } catch (error) {
+      results.innerHTML = `<hr/><div class="alert alert-danger">Unable to reach the server.</div>`;
+      console.error('Error fetching data:', error);
+      // You can handle errors here or propagate them to the caller as needed
+    };
+  }
+
+  async function retrievePartIds(domain, docId, token, callback) {
+    try {
+      const response = await authFetch(`${domain}/api/documents/${docId}/parts/`, token);    
+      if (!response.ok) {
+        results.innerHTML = `<hr/><div class="alert alert-danger">HTTP error! Status: ${response.status}</div>`;
+        throw new Error(`HTTP error! Status: ${response.status}`);
+      }
+      const data = await response.json();
+      let pages = [];
+      for (var i = 0; i < data.results.length; i++) {
+        pages.push(`${domain}/api/documents/${docId}/parts/${data.results[i].pk}/`);
+      }
+      return callback(pages, token);
+    } catch (error) {
+      results.innerHTML = `<hr/><div class="alert alert-danger">Unable to reach the server.</div>`;
+      console.error('Error fetching data:', error);
+      // You can handle errors here or propagate them to the caller as needed
+    };
   }
 
   async function processQueue(uris, token, typesDictionary) {
@@ -302,9 +312,10 @@ document.addEventListener('DOMContentLoaded', function() {
    * @param {string} domain - The domain of the eScriptorium server
    * @param {string} docId - The ID of the document to parse.
    * @param {string} pages - A string indicating which pages to extract. Can be a page number ('1', '2', etc.) or 'all' to extract all pages.
+   * @param {string} token - Authentification token
    * @param {Function} callback - A callback function that takes a typesDictionary object and a uriList object as arguments.
    */
-  function parseDocument(domain, docId, pageMode, token, callback) {
+  async function parseDocument(domain, docId, pageMode, token, callback) {
     const loadingText = addLoadingText(results, "Retrieving the list of region and line types");
     loadingText.remove();
     authFetch(`${domain}/api/documents/${docId}/`, token)
@@ -324,7 +335,7 @@ document.addEventListener('DOMContentLoaded', function() {
         if (pageMode == "all") {
           retrievePartIds(domain, docId, token, (uris, token) => { callback(uris, token, typesDictionary) });
         } else {
-          callback([`${domain}/api/documents/${docId}/parts/${pageMode}`], token, typesDictionary)
+          callback([`${domain}/api/documents/${docId}/parts/${pageMode}`], token, typesDictionary);
         }
         // const objects = data.objects;
       })
